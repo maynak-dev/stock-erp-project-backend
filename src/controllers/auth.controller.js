@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 
 exports.register = async (req, res) => {
   try {
-    const prisma = req.app.locals.prisma; // Get shared Prisma client
+    const prisma = req.app.locals.prisma;
     const { email, password, name, role, companyId, locationId, shopId } = req.body;
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -40,10 +40,10 @@ exports.login = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // ✅ FIX: Allow cross-origin cookie in production
+    // FIX: Allow cross-origin cookie in production
     res.cookie('token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // must be true on Vercel (HTTPS)
+      secure: process.env.NODE_ENV === 'production', 
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
@@ -70,6 +70,5 @@ exports.logout = (req, res) => {
 };
 
 exports.me = (req, res) => {
-  // req.user is set by the auth middleware (protect)
   res.json(req.user);
 };

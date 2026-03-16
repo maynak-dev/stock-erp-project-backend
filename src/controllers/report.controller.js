@@ -104,8 +104,6 @@ exports.getReturnReport = async (req, res) => {
 // New: Sales Report – if you have sales/billing module (placeholder)
 exports.getSalesReport = async (req, res) => {
   try {
-    // Placeholder: If you have a sales module, implement here.
-    // For now, return a message or empty array.
     res.json({ message: 'Sales report not implemented yet' });
   } catch (error) {
     res.status(500).json({ error: error.message });
