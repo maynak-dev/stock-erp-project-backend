@@ -7,7 +7,6 @@ exports.restrictTo = (...roles) => {
     next();
   };
 };
-
 // Optional scope middleware (if used)
 exports.scopeData = (req, res, next) => {
   next();
