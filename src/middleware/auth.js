@@ -1,9 +1,8 @@
 const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
 
 exports.protect = async (req, res, next) => {
   try {
+    const prisma = req.app.locals.prisma; // Get shared client
     let token;
     if (req.cookies.token) {
       token = req.cookies.token;
