@@ -1,11 +1,20 @@
 const { PrismaClient } = require('@prisma/client');
+const { PrismaPg } = require('@prisma/adapter-pg');
+const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
-const prisma = new PrismaClient();
+
+// Set up the PostgreSQL connection pool using your DATABASE_URL
+const connectionString = process.env.DATABASE_URL;
+const pool = new Pool({ connectionString });
+const adapter = new PrismaPg(pool);
+
+// Instantiate PrismaClient with the adapter (Prisma 7+)
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Clean up existing data (optional – comment out if you want to keep data)
+  // Optional: Clean up existing data (uncomment if you want a fresh start)
   // await prisma.$transaction([
   //   prisma.returnItem.deleteMany(),
   //   prisma.returnRequest.deleteMany(),
@@ -194,8 +203,7 @@ async function main() {
       products.push(product);
     }
 
-    // ---------- STOCK (at company, location, shop levels) ----------
-    // Helper to add stock
+    // Helper to add stock without duplication
     async function addStock(item) {
       const exists = await prisma.stock.findFirst({
         where: {
@@ -242,11 +250,10 @@ async function main() {
       }
     }
 
-    // Stock at shops
+    // Stock at shops (with some expiring soon)
     const shops = await prisma.shop.findMany({ where: { locationId: { in: locations.map(l => l.id) } } });
     for (const shop of shops) {
       for (const product of products) {
-        // Add some expiring stock for testing alerts
         const expiryDate = new Date(Date.now() + (Math.random() > 0.5 ? 5 : 30) * 24 * 60 * 60 * 1000);
         await addStock({
           batchNumber: `BATCH-${Date.now()}-${Math.random()}`,
