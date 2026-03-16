@@ -1,3 +1,4 @@
+// backend/src/middleware/rbac.js
 exports.restrictTo = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
@@ -7,9 +8,7 @@ exports.restrictTo = (...roles) => {
   };
 };
 
-// Data scope middleware (attach to routes that need filtering)
+// Optional scope middleware (if used)
 exports.scopeData = (req, res, next) => {
-  // For list endpoints, we'll handle filtering in controller based on req.user
-  // This just marks that scoping is needed
   next();
 };
