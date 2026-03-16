@@ -1,0 +1,160 @@
+// This is your Prisma schema file,
+// learn more in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // The connection URL is now defined in prisma.config.ts
+}
+
+enum Role {
+  SUPER_ADMIN
+  COMPANY_ADMIN
+  LOCATION_MANAGER
+  SHOP_OWNER
+  SHOP_EMPLOYEE
+}
+
+enum StockStatus {
+  IN_COMPANY
+  IN_LOCATION
+  IN_SHOP
+  RETURNED
+  EXPIRED
+}
+
+enum ReturnStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+model Company {
+  id        String     @id @default(cuid())
+  name      String
+  gst       String?
+  address   String?
+  contact   String?
+  locations Location[]
+  users     User[]
+  products  Product[]
+  stock     Stock[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  shops     Shop[]
+  users     User[]
+  stock     Stock[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Shop {
+  id             String          @id @default(cuid())
+  name           String
+  address        String?
+  locationId     String
+  location       Location        @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  users          User[]
+  stock          Stock[]
+  returnRequests ReturnRequest[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model User {
+  id         String    @id @default(cuid())
+  email      String    @unique
+  password   String
+  name       String
+  role       Role
+  companyId  String?
+  locationId String?
+  shopId     String?
+  company    Company?  @relation(fields: [companyId], references: [id])
+  location   Location? @relation(fields: [locationId], references: [id])
+  shop       Shop?     @relation(fields: [shopId], references: [id])
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Product {
+  id            String   @id @default(cuid())
+  name          String
+  sku           String   @unique
+  defaultPrice  Float
+  shelfLifeDays Int? // days until expiry from manufacture
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockItems    Stock[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Stock {
+  id                String          @id @default(cuid())
+  batchNumber       String
+  manufacturingDate DateTime
+  expiryDate        DateTime
+  quantity          Int
+  price             Float?
+  productId         String
+  product           Product         @relation(fields: [productId], references: [id])
+  shopId            String?
+  shop              Shop?           @relation(fields: [shopId], references: [id])
+  locationId        String?
+  location          Location?       @relation(fields: [locationId], references: [id])
+  companyId         String?
+  company           Company?        @relation(fields: [companyId], references: [id])
+  status            StockStatus     @default(IN_COMPANY)
+  movements         StockMovement[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  returnItems       ReturnItem[]
+}
+
+model StockMovement {
+  id           String   @id @default(cuid())
+  stockId      String
+  stock        Stock    @relation(fields: [stockId], references: [id])
+  fromType     String // COMPANY, LOCATION, SHOP
+  fromId       String?
+  toType       String
+  toId         String
+  quantity     Int
+  movementDate DateTime @default(now())
+  createdAt    DateTime @default(now())
+}
+
+model ReturnRequest {
+  id            String       @id @default(cuid())
+  requestNumber String       @unique
+  shopId        String
+  shop          Shop         @relation(fields: [shopId], references: [id])
+  items         ReturnItem[]
+  status        ReturnStatus @default(PENDING)
+  invoicePath   String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model ReturnItem {
+  id              String        @id @default(cuid())
+  returnRequestId String
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id])
+  stockId         String
+  stock           Stock         @relation(fields: [stockId], references: [id])
+  quantity        Int
+  reason          String?
+}
