@@ -11,6 +11,7 @@ const {
 const router = express.Router();
 
 router.use(protect);
+
 router.route('/')
   .get(getAllCompanies)
   .post(restrictTo('SUPER_ADMIN'), createCompany);
