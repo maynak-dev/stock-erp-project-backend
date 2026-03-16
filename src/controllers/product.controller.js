@@ -2,7 +2,9 @@ exports.getAllProducts = async (req, res) => {
   try {
     const prisma = req.app.locals.prisma;
     const products = await prisma.product.findMany({
-      where: req.user.role === 'SUPER_ADMIN' ? {} : { companyId: req.user.companyId }
+      where: req.user.role === 'SUPER_ADMIN' ? {} : { companyId: req.user.companyId },
+      include: { company: true },          // FIX: include company so frontend shows company name
+      orderBy: { name: 'asc' },
     });
     res.json(products);
   } catch (error) {
@@ -13,7 +15,10 @@ exports.getAllProducts = async (req, res) => {
 exports.createProduct = async (req, res) => {
   try {
     const prisma = req.app.locals.prisma;
-    const product = await prisma.product.create({ data: req.body });
+    const product = await prisma.product.create({
+      data: req.body,
+      include: { company: true },
+    });
     res.status(201).json(product);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -26,7 +31,8 @@ exports.updateProduct = async (req, res) => {
     const { id } = req.params;
     const product = await prisma.product.update({
       where: { id },
-      data: req.body
+      data: req.body,
+      include: { company: true },
     });
     res.json(product);
   } catch (error) {
