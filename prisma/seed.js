@@ -1,284 +1,374 @@
+require('dotenv').config();
+
 const { PrismaClient } = require('@prisma/client');
 const { PrismaPg } = require('@prisma/adapter-pg');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 
-// Set up the PostgreSQL connection pool using your DATABASE_URL
 const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  console.error('❌ DATABASE_URL not found. Add it to your .env file.');
+  process.exit(1);
+}
 const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool);
-
-// Instantiate PrismaClient with the adapter (Prisma 7+)
 const prisma = new PrismaClient({ adapter });
 
+// ─── Helpers ──────────────────────────────────────────────────────────────
+const daysFromNow  = (d) => new Date(Date.now() + d * 86400000);
+const daysAgo      = (d) => new Date(Date.now() - d * 86400000);
+const hash         = (p) => bcrypt.hash(p, 10);
+const pad          = (n, z = 3) => String(n).padStart(z, '0');
+
 async function main() {
-  console.log('🌱 Seeding database...');
+  console.log('🗑️  Clearing existing data...\n');
 
-  // Optional: Clean up existing data (uncomment if you want a fresh start)
-  // await prisma.$transaction([
-  //   prisma.returnItem.deleteMany(),
-  //   prisma.returnRequest.deleteMany(),
-  //   prisma.stockMovement.deleteMany(),
-  //   prisma.stock.deleteMany(),
-  //   prisma.product.deleteMany(),
-  //   prisma.user.deleteMany(),
-  //   prisma.shop.deleteMany(),
-  //   prisma.location.deleteMany(),
-  //   prisma.company.deleteMany(),
-  // ]);
+  // Delete in strict FK order (children first)
+  await prisma.returnItem.deleteMany();
+  await prisma.returnRequest.deleteMany();
+  await prisma.stockMovement.deleteMany();
+  await prisma.stock.deleteMany();
+  await prisma.product.deleteMany();
+  await prisma.user.deleteMany();
+  await prisma.shop.deleteMany();
+  await prisma.location.deleteMany();
+  await prisma.company.deleteMany();
 
-  // ---------- SUPER ADMIN ----------
-  const superAdminEmail = 'admin@example.com';
-  let superAdmin = await prisma.user.findUnique({ where: { email: superAdminEmail } });
-  if (!superAdmin) {
-    const hashedPassword = await bcrypt.hash('admin123', 10);
-    superAdmin = await prisma.user.create({
-      data: {
-        email: superAdminEmail,
-        password: hashedPassword,
-        name: 'Super Admin',
-        role: 'SUPER_ADMIN',
-      },
-    });
-    console.log('✅ Super Admin created');
-  } else {
-    console.log('ℹ️ Super Admin already exists');
-  }
+  console.log('✅ All previous data removed.\n');
+  console.log('🌱 Seeding fresh data...\n');
 
-  // ---------- COMPANIES ----------
+  // ─── SUPER ADMIN ──────────────────────────────────────────────────────
+  const superAdmin = await prisma.user.create({
+    data: {
+      email:    'admin@stockerp.com',
+      password: await hash('Admin@1234'),
+      name:     'Super Admin',
+      role:     'SUPER_ADMIN',
+    },
+  });
+  console.log('👤 Super Admin       admin@stockerp.com       / Admin@1234');
+
+  // ─── COMPANIES ────────────────────────────────────────────────────────
   const companiesData = [
     {
-      name: 'Mio Amore',
-      gst: '19AABCU9603R1ZM',
-      address: 'Kolkata, West Bengal',
-      contact: '+91 9876543210',
+      name:    'Mio Amore',
+      gst:     '19AABCU9603R1ZM',
+      address: '14 Park Street, Kolkata, West Bengal 700016',
+      contact: '+91 98765 43210',
+      prefix:  'MIO',
+      city:    'Kolkata',
     },
     {
-      name: 'Monginis',
-      gst: '27AABBC1234E1ZP',
-      address: 'Mumbai, Maharashtra',
-      contact: '+91 9876543211',
+      name:    'Monginis',
+      gst:     '27AABBC1234E1ZP',
+      address: '42 Hill Road, Bandra West, Mumbai 400050',
+      contact: '+91 98765 43211',
+      prefix:  'MON',
+      city:    'Mumbai',
+    },
+    {
+      name:    'Kookie Jar',
+      gst:     '29AADCK5678F1ZQ',
+      address: '7 Church Street, Bengaluru, Karnataka 560001',
+      contact: '+91 98765 43212',
+      prefix:  'KKJ',
+      city:    'Bengaluru',
     },
   ];
 
-  for (const compData of companiesData) {
-    let company = await prisma.company.findFirst({ where: { name: compData.name } });
-    if (!company) {
-      company = await prisma.company.create({ data: compData });
-      console.log(`✅ Company created: ${company.name}`);
-    } else {
-      console.log(`ℹ️ Company already exists: ${company.name}`);
-    }
+  for (const [ci, compData] of companiesData.entries()) {
+    const { prefix, city, ...coreData } = compData;
 
-    // ---------- COMPANY ADMIN ----------
-    const adminEmail = `admin@${company.name.toLowerCase().replace(' ', '')}.com`;
-    let companyAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
-    if (!companyAdmin) {
-      const hashedPassword = await bcrypt.hash('company123', 10);
-      companyAdmin = await prisma.user.create({
+    const company = await prisma.company.create({ data: coreData });
+    console.log(`\n🏢 Company: ${company.name}`);
+
+    // Company Admin
+    const compAdmin = await prisma.user.create({
+      data: {
+        email:     `admin@${prefix.toLowerCase()}.com`,
+        password:  await hash('Company@1234'),
+        name:      `${company.name} Admin`,
+        role:      'COMPANY_ADMIN',
+        companyId: company.id,
+      },
+    });
+    console.log(`   👤 Company Admin     ${compAdmin.email}   / Company@1234`);
+
+    // ─── PRODUCTS (4 per company) ────────────────────────────────────
+    const productDefs = [
+      { suffix: 'Chocolate Cake',  sku: `${prefix}-CHOC-001`, price: 450,  shelf: 7  },
+      { suffix: 'Butter Cookies',  sku: `${prefix}-COOK-002`, price: 120,  shelf: 60 },
+      { suffix: 'Cream Puff',      sku: `${prefix}-CRMP-003`, price: 85,   shelf: 3  },
+      { suffix: 'Fruit Tart',      sku: `${prefix}-TART-004`, price: 220,  shelf: 5  },
+    ];
+
+    const products = [];
+    for (const pd of productDefs) {
+      const product = await prisma.product.create({
         data: {
-          email: adminEmail,
-          password: hashedPassword,
-          name: `${company.name} Admin`,
-          role: 'COMPANY_ADMIN',
+          name:          `${company.name} ${pd.suffix}`,
+          sku:           pd.sku,
+          defaultPrice:  pd.price,
+          shelfLifeDays: pd.shelf,
+          companyId:     company.id,
+        },
+      });
+      products.push({ ...product, price: pd.price });
+    }
+    console.log(`   📦 ${products.length} products created`);
+
+    // ─── LOCATIONS (3 per company) ────────────────────────────────────
+    const locationNames = [
+      `${city} Central Hub`,
+      `${city} North Depot`,
+      `${city} East Warehouse`,
+    ];
+
+    const locations = [];
+    for (const [li, locName] of locationNames.entries()) {
+      const location = await prisma.location.create({
+        data: {
+          name:      locName,
+          address:   `Warehouse ${li + 1}, Industrial Area, ${city}`,
           companyId: company.id,
         },
       });
-      console.log(`   ✅ Company Admin created: ${companyAdmin.email}`);
-    }
-
-    // ---------- LOCATIONS (2 per company) ----------
-    const locations = [];
-    for (let i = 1; i <= 2; i++) {
-      const locName = `${company.name} Location ${i}`;
-      let location = await prisma.location.findFirst({
-        where: { name: locName, companyId: company.id },
-      });
-      if (!location) {
-        location = await prisma.location.create({
-          data: {
-            name: locName,
-            address: `${i}, Some Street, City`,
-            companyId: company.id,
-          },
-        });
-        console.log(`   ✅ Location created: ${location.name}`);
-      }
       locations.push(location);
 
-      // ---------- LOCATION MANAGER ----------
-      const locManagerEmail = `manager${i}@${company.name.toLowerCase().replace(' ', '')}.com`;
-      let locManager = await prisma.user.findUnique({ where: { email: locManagerEmail } });
-      if (!locManager) {
-        const hashedPassword = await bcrypt.hash('location123', 10);
-        locManager = await prisma.user.create({
+      // Location Manager
+      const locMgr = await prisma.user.create({
+        data: {
+          email:      `mgr.loc${li + 1}@${prefix.toLowerCase()}.com`,
+          password:   await hash('Location@1234'),
+          name:       `${locName} Manager`,
+          role:       'LOCATION_MANAGER',
+          companyId:  company.id,
+          locationId: location.id,
+        },
+      });
+
+      // ─── SHOPS (2 per location) ──────────────────────────────────
+      const shopAreas = ['Main Market', 'Mall Outlet'];
+      for (const [si, area] of shopAreas.entries()) {
+        const shop = await prisma.shop.create({
           data: {
-            email: locManagerEmail,
-            password: hashedPassword,
-            name: `Location ${i} Manager`,
-            role: 'LOCATION_MANAGER',
-            companyId: company.id,
+            name:       `${company.name} — ${locName.split(' ').slice(-1)[0]} ${area}`,
+            address:    `Shop ${si + 1}, ${area}, ${city}`,
             locationId: location.id,
           },
         });
-        console.log(`      ✅ Location Manager created: ${locManager.email}`);
-      }
 
-      // ---------- SHOPS (2 per location) ----------
-      for (let j = 1; j <= 2; j++) {
-        const shopName = `${company.name} Shop ${i}-${j}`;
-        let shop = await prisma.shop.findFirst({
-          where: { name: shopName, locationId: location.id },
-        });
-        if (!shop) {
-          shop = await prisma.shop.create({
-            data: {
-              name: shopName,
-              address: `Shop ${j}, Location ${i}`,
-              locationId: location.id,
-            },
-          });
-          console.log(`      ✅ Shop created: ${shop.name}`);
-        }
-
-        // ---------- SHOP OWNER ----------
-        const ownerEmail = `owner${i}${j}@${company.name.toLowerCase().replace(' ', '')}.com`;
-        let shopOwner = await prisma.user.findUnique({ where: { email: ownerEmail } });
-        if (!shopOwner) {
-          const hashedPassword = await bcrypt.hash('shop123', 10);
-          shopOwner = await prisma.user.create({
-            data: {
-              email: ownerEmail,
-              password: hashedPassword,
-              name: `Shop Owner ${i}-${j}`,
-              role: 'SHOP_OWNER',
-              companyId: company.id,
-              locationId: location.id,
-              shopId: shop.id,
-            },
-          });
-          console.log(`         ✅ Shop Owner created: ${shopOwner.email}`);
-        }
-
-        // ---------- SHOP EMPLOYEE ----------
-        const empEmail = `emp${i}${j}@${company.name.toLowerCase().replace(' ', '')}.com`;
-        let shopEmp = await prisma.user.findUnique({ where: { email: empEmail } });
-        if (!shopEmp) {
-          const hashedPassword = await bcrypt.hash('employee123', 10);
-          shopEmp = await prisma.user.create({
-            data: {
-              email: empEmail,
-              password: hashedPassword,
-              name: `Employee ${i}-${j}`,
-              role: 'SHOP_EMPLOYEE',
-              companyId: company.id,
-              locationId: location.id,
-              shopId: shop.id,
-            },
-          });
-          console.log(`         ✅ Shop Employee created: ${shopEmp.email}`);
-        }
-      }
-    }
-
-    // ---------- PRODUCTS (3 per company) ----------
-    const products = [];
-    for (let k = 1; k <= 3; k++) {
-      const productName = `${company.name} Product ${k}`;
-      let product = await prisma.product.findFirst({
-        where: { name: productName, companyId: company.id },
-      });
-      if (!product) {
-        product = await prisma.product.create({
+        // Shop Owner
+        await prisma.user.create({
           data: {
-            name: productName,
-            sku: `${company.name.substring(0, 3).toUpperCase()}-PRD-00${k}`,
-            defaultPrice: 100 + k * 10,
-            shelfLifeDays: 30 + k * 10,
-            companyId: company.id,
+            email:      `owner.l${li + 1}s${si + 1}@${prefix.toLowerCase()}.com`,
+            password:   await hash('Shop@1234'),
+            name:       `${shop.name} Owner`,
+            role:       'SHOP_OWNER',
+            companyId:  company.id,
+            locationId: location.id,
+            shopId:     shop.id,
           },
         });
-        console.log(`   ✅ Product created: ${product.name}`);
+
+        // Shop Employee
+        await prisma.user.create({
+          data: {
+            email:      `emp.l${li + 1}s${si + 1}@${prefix.toLowerCase()}.com`,
+            password:   await hash('Employee@1234'),
+            name:       `${shop.name} Staff`,
+            role:       'SHOP_EMPLOYEE',
+            companyId:  company.id,
+            locationId: location.id,
+            shopId:     shop.id,
+          },
+        });
+
+        // ── Stock IN SHOP ──────────────────────────────────────────
+        for (const [pi, product] of products.entries()) {
+          // Mix of fresh, near-expiry, and already-expired batches
+          const batchScenarios = [
+            { daysExp: 2,   qty: 15, label: 'NEAR' },   // expiring in 2 days
+            { daysExp: 25,  qty: 30, label: 'GOOD' },   // normal stock
+          ];
+          for (const s of batchScenarios) {
+            await prisma.stock.create({
+              data: {
+                batchNumber:       `${prefix}-SHOP-${pad(li+1)}-${pad(si+1)}-${pad(pi+1)}-${s.label}`,
+                manufacturingDate: daysAgo(product.shelfLifeDays + 10),
+                expiryDate:        daysFromNow(s.daysExp),
+                quantity:          s.qty,
+                price:             product.price,
+                productId:         product.id,
+                companyId:         company.id,
+                locationId:        location.id,
+                shopId:            shop.id,
+                status:            'IN_SHOP',
+              },
+            });
+          }
+        }
       }
-      products.push(product);
+
+      // ── Stock IN LOCATION ────────────────────────────────────────
+      for (const [pi, product] of products.entries()) {
+        await prisma.stock.create({
+          data: {
+            batchNumber:       `${prefix}-LOC-${pad(li+1)}-${pad(pi+1)}-MAIN`,
+            manufacturingDate: daysAgo(20),
+            expiryDate:        daysFromNow(40),
+            quantity:          150,
+            price:             product.price,
+            productId:         product.id,
+            companyId:         company.id,
+            locationId:        location.id,
+            status:            'IN_LOCATION',
+          },
+        });
+        // A second batch expiring in 5 days
+        await prisma.stock.create({
+          data: {
+            batchNumber:       `${prefix}-LOC-${pad(li+1)}-${pad(pi+1)}-WARN`,
+            manufacturingDate: daysAgo(product.shelfLifeDays - 5),
+            expiryDate:        daysFromNow(5),
+            quantity:          40,
+            price:             product.price,
+            productId:         product.id,
+            companyId:         company.id,
+            locationId:        location.id,
+            status:            'IN_LOCATION',
+          },
+        });
+      }
     }
 
-    // Helper to add stock without duplication
-    async function addStock(item) {
-      const exists = await prisma.stock.findFirst({
-        where: {
-          batchNumber: item.batchNumber,
-          productId: item.productId,
-          companyId: item.companyId || null,
-          locationId: item.locationId || null,
-          shopId: item.shopId || null,
+    // ── Stock IN COMPANY warehouse ───────────────────────────────────
+    for (const [pi, product] of products.entries()) {
+      await prisma.stock.create({
+        data: {
+          batchNumber:       `${prefix}-WH-MASTER-${pad(pi+1)}-A`,
+          manufacturingDate: daysAgo(5),
+          expiryDate:        daysFromNow(90),
+          quantity:          500,
+          price:             product.price,
+          productId:         product.id,
+          companyId:         company.id,
+          status:            'IN_COMPANY',
         },
       });
-      if (!exists) {
-        await prisma.stock.create({ data: item });
-      }
-    }
-
-    // Stock at company warehouse
-    for (const product of products) {
-      await addStock({
-        batchNumber: `BATCH-${Date.now()}-${Math.random()}`,
-        manufacturingDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000), // 60 days ago
-        expiryDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days from now
-        quantity: 100,
-        price: product.defaultPrice,
-        productId: product.id,
-        companyId: company.id,
-        status: 'IN_COMPANY',
+      await prisma.stock.create({
+        data: {
+          batchNumber:       `${prefix}-WH-MASTER-${pad(pi+1)}-B`,
+          manufacturingDate: daysAgo(45),
+          expiryDate:        daysFromNow(6),   // expiring in 6 days — shows in alerts
+          quantity:          60,
+          price:             product.price,
+          productId:         product.id,
+          companyId:         company.id,
+          status:            'IN_COMPANY',
+        },
       });
     }
 
-    // Stock at locations
-    for (const location of locations) {
-      for (const product of products) {
-        await addStock({
-          batchNumber: `BATCH-${Date.now()}-${Math.random()}`,
-          manufacturingDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-          expiryDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
-          quantity: 50,
-          price: product.defaultPrice,
-          productId: product.id,
-          companyId: company.id,
-          locationId: location.id,
-          status: 'IN_LOCATION',
+    // ── Return Requests ──────────────────────────────────────────────
+    const allShops = await prisma.shop.findMany({
+      where: { location: { companyId: company.id } },
+    });
+    const shopStock = await prisma.stock.findMany({
+      where: { shopId: allShops[0].id },
+      take:  2,
+    });
+
+    if (shopStock.length >= 2) {
+      // PENDING return
+      await prisma.returnRequest.create({
+        data: {
+          requestNumber: `RET-${prefix}-${pad(ci + 1)}-001`,
+          shopId:        allShops[0].id,
+          status:        'PENDING',
+          items: {
+            create: [
+              { stockId: shopStock[0].id, quantity: 5,  reason: 'Near expiry' },
+              { stockId: shopStock[1].id, quantity: 3,  reason: 'Damaged packaging' },
+            ],
+          },
+        },
+      });
+
+      // APPROVED return
+      await prisma.returnRequest.create({
+        data: {
+          requestNumber: `RET-${prefix}-${pad(ci + 1)}-002`,
+          shopId:        allShops[0].id,
+          status:        'APPROVED',
+          items: {
+            create: [
+              { stockId: shopStock[0].id, quantity: 2, reason: 'Overstock' },
+            ],
+          },
+        },
+      });
+
+      // COMPLETED return (second shop if available)
+      if (allShops.length >= 2) {
+        const shop2Stock = await prisma.stock.findMany({
+          where: { shopId: allShops[1].id },
+          take:  1,
         });
+        if (shop2Stock.length) {
+          await prisma.returnRequest.create({
+            data: {
+              requestNumber: `RET-${prefix}-${pad(ci + 1)}-003`,
+              shopId:        allShops[1].id,
+              status:        'COMPLETED',
+              items: {
+                create: [
+                  { stockId: shop2Stock[0].id, quantity: 4, reason: 'Quality issue' },
+                ],
+              },
+            },
+          });
+        }
       }
     }
 
-    // Stock at shops (with some expiring soon)
-    const shops = await prisma.shop.findMany({ where: { locationId: { in: locations.map(l => l.id) } } });
-    for (const shop of shops) {
-      for (const product of products) {
-        const expiryDate = new Date(Date.now() + (Math.random() > 0.5 ? 5 : 30) * 24 * 60 * 60 * 1000);
-        await addStock({
-          batchNumber: `BATCH-${Date.now()}-${Math.random()}`,
-          manufacturingDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
-          expiryDate,
-          quantity: 20,
-          price: product.defaultPrice,
-          productId: product.id,
-          companyId: company.id,
-          locationId: shop.locationId,
-          shopId: shop.id,
-          status: 'IN_SHOP',
-        });
-      }
-    }
+    console.log(`   ✅ ${locations.length} locations, ${locations.length * 2} shops, stock & returns seeded`);
   }
 
-  console.log('🌱 Seeding completed!');
+  // ─── SUMMARY ──────────────────────────────────────────────────────────
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🌱 Seeding complete!\n');
+
+  const counts = await Promise.all([
+    prisma.company.count(),
+    prisma.location.count(),
+    prisma.shop.count(),
+    prisma.user.count(),
+    prisma.product.count(),
+    prisma.stock.count(),
+    prisma.returnRequest.count(),
+  ]);
+  console.log(`   Companies  : ${counts[0]}`);
+  console.log(`   Locations  : ${counts[1]}`);
+  console.log(`   Shops      : ${counts[2]}`);
+  console.log(`   Users      : ${counts[3]}`);
+  console.log(`   Products   : ${counts[4]}`);
+  console.log(`   Stock rows : ${counts[5]}`);
+  console.log(`   Returns    : ${counts[6]}`);
+
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🔑 Login Credentials\n');
+  console.log('   Super Admin   admin@stockerp.com        Admin@1234');
+  console.log('   Company Admin admin@mio.com             Company@1234');
+  console.log('   Company Admin admin@mon.com             Company@1234');
+  console.log('   Company Admin admin@kkj.com             Company@1234');
+  console.log('   Loc Manager   mgr.loc1@mio.com          Location@1234');
+  console.log('   Shop Owner    owner.l1s1@mio.com        Shop@1234');
+  console.log('   Shop Employee emp.l1s1@mio.com          Employee@1234');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 }
 
 main()
-  .catch((e) => {
-    console.error('❌ Seeding failed:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+  .catch((e) => { console.error('❌ Seeding failed:', e); process.exit(1); })
+  .finally(async () => { await prisma.$disconnect(); });
