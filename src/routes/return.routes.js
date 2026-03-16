@@ -2,10 +2,10 @@ const express = require('express');
 const { protect } = require('../middleware/auth');
 const { restrictTo } = require('../middleware/rbac');
 const {
+  getAllReturns,
   createReturnRequest,
   approveReturn,
-  rejectReturn,
-  getAllReturns
+  rejectReturn
 } = require('../controllers/return.controller');
 
 const router = express.Router();

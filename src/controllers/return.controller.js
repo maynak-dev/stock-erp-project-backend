@@ -1,8 +1,42 @@
-// No local PrismaClient import/instantiation – use from app.locals
+// backend/src/controllers/return.controller.js
 
+// Get all return requests (with user scope)
+exports.getAllReturns = async (req, res) => {
+  try {
+    const prisma = req.app.locals.prisma;
+    const user = req.user;
+
+    const where = {};
+
+    // Apply role-based scope
+    if (user.role === 'SHOP_OWNER' || user.role === 'SHOP_EMPLOYEE') {
+      where.shopId = user.shopId;
+    } else if (user.role === 'LOCATION_MANAGER') {
+      where.shop = { locationId: user.locationId };
+    } else if (user.role === 'COMPANY_ADMIN') {
+      where.shop = { location: { companyId: user.companyId } };
+    }
+    // SUPER_ADMIN sees all (no filter)
+
+    const returns = await prisma.returnRequest.findMany({
+      where,
+      include: {
+        shop: { include: { location: true } },
+        items: { include: { stock: { include: { product: true } } } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(returns);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Create a new return request (shop users only)
 exports.createReturnRequest = async (req, res) => {
   try {
-    const prisma = req.app.locals.prisma; // Get shared client
+    const prisma = req.app.locals.prisma;
     const { items } = req.body; // [{ stockId, quantity, reason }]
     const user = req.user;
 
@@ -35,17 +69,18 @@ exports.createReturnRequest = async (req, res) => {
   }
 };
 
+// Approve a return request (company admin or super admin)
 exports.approveReturn = async (req, res) => {
   try {
-    const prisma = req.app.locals.prisma; // Get shared client
+    const prisma = req.app.locals.prisma;
     const { id } = req.params;
     const user = req.user;
 
     const returnRequest = await prisma.returnRequest.findUnique({
       where: { id },
-      include: { 
+      include: {
         items: true,
-        shop: { include: { location: true } } // Added to check companyId
+        shop: { include: { location: true } }
       }
     });
 
@@ -88,6 +123,36 @@ exports.approveReturn = async (req, res) => {
     });
 
     res.json({ message: 'Return approved' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Reject a return request
+exports.rejectReturn = async (req, res) => {
+  try {
+    const prisma = req.app.locals.prisma;
+    const { id } = req.params;
+    const user = req.user;
+
+    const returnRequest = await prisma.returnRequest.findUnique({
+      where: { id },
+      include: { shop: { include: { location: true } } }
+    });
+
+    if (!returnRequest) return res.status(404).json({ message: 'Not found' });
+
+    // Only company admin or above can reject
+    if (user.role === 'COMPANY_ADMIN' && returnRequest.shop.location.companyId !== user.companyId) {
+      return res.status(403).json({ message: 'Not your company' });
+    }
+
+    await prisma.returnRequest.update({
+      where: { id },
+      data: { status: 'REJECTED' }
+    });
+
+    res.json({ message: 'Return rejected' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
