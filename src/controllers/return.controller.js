@@ -1,8 +1,8 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+// No local PrismaClient import/instantiation – use from app.locals
 
 exports.createReturnRequest = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma; // Get shared client
     const { items } = req.body; // [{ stockId, quantity, reason }]
     const user = req.user;
 
@@ -29,9 +29,6 @@ exports.createReturnRequest = async (req, res) => {
       include: { items: true }
     });
 
-    // Optionally mark those stock items as 'RETURN_REQUESTED' or similar
-    // We'll keep simple: just create request, status update later
-
     res.status(201).json(returnRequest);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -40,12 +37,16 @@ exports.createReturnRequest = async (req, res) => {
 
 exports.approveReturn = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma; // Get shared client
     const { id } = req.params;
     const user = req.user;
 
     const returnRequest = await prisma.returnRequest.findUnique({
       where: { id },
-      include: { items: true }
+      include: { 
+        items: true,
+        shop: { include: { location: true } } // Added to check companyId
+      }
     });
 
     if (!returnRequest) return res.status(404).json({ message: 'Not found' });
@@ -86,7 +87,6 @@ exports.approveReturn = async (req, res) => {
       }
     });
 
-    // Generate invoice (we'll implement later)
     res.json({ message: 'Return approved' });
   } catch (error) {
     res.status(500).json({ error: error.message });

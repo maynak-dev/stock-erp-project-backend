@@ -1,11 +1,11 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
 
 exports.register = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma; // Get shared Prisma client
     const { email, password, name, role, companyId, locationId, shopId } = req.body;
+
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
       data: {
@@ -26,7 +26,9 @@ exports.register = async (req, res) => {
 
 exports.login = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma;
     const { email, password } = req.body;
+
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -66,6 +68,7 @@ exports.logout = (req, res) => {
   res.json({ message: 'Logged out' });
 };
 
-exports.me = async (req, res) => {
+exports.me = (req, res) => {
+  // req.user is set by the auth middleware (protect)
   res.json(req.user);
 };

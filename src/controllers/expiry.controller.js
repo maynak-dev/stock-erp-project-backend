@@ -1,8 +1,8 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+// No local PrismaClient import/instantiation – use from app.locals
 
 exports.getExpiringStock = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma; // Get shared client
     const user = req.user;
     const days = parseInt(req.query.days) || 7; // default 7 days
 
@@ -15,7 +15,7 @@ exports.getExpiringStock = async (req, res) => {
       quantity: { gt: 0 }
     };
 
-    // Apply scope
+    // Apply scope based on user role
     if (user.role === 'SHOP_EMPLOYEE' || user.role === 'SHOP_OWNER') {
       where.shopId = user.shopId;
     } else if (user.role === 'LOCATION_MANAGER') {
@@ -23,6 +23,7 @@ exports.getExpiringStock = async (req, res) => {
     } else if (user.role === 'COMPANY_ADMIN') {
       where.companyId = user.companyId;
     }
+    // SUPER_ADMIN sees all (no extra filter)
 
     const expiring = await prisma.stock.findMany({
       where,

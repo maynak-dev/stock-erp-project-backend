@@ -1,9 +1,9 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+// No local PrismaClient import/instantiation – use from app.locals
 
 // Add stock (entry from company)
 exports.addStock = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma; // Get shared client
     const { productId, batchNumber, manufacturingDate, expiryDate, quantity, price } = req.body;
     const user = req.user;
 
@@ -43,6 +43,7 @@ exports.addStock = async (req, res) => {
 // Transfer stock between levels
 exports.transferStock = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma; // Get shared client
     const { stockId, quantity, toType, toId } = req.body; // toType: 'LOCATION', 'SHOP'
     const user = req.user;
 
@@ -98,6 +99,7 @@ exports.transferStock = async (req, res) => {
 // Get stock based on user scope
 exports.getStock = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma; // Get shared client
     const user = req.user;
     const where = {};
 

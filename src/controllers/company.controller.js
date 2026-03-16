@@ -1,8 +1,8 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+// No local PrismaClient import/instantiation – use from app.locals
 
 exports.getAllCompanies = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma; // Get shared client
     // Super admin can see all; company admin sees only own
     const where = req.user.role === 'SUPER_ADMIN' ? {} : { id: req.user.companyId };
     const companies = await prisma.company.findMany({ where });
@@ -14,6 +14,7 @@ exports.getAllCompanies = async (req, res) => {
 
 exports.createCompany = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma;
     if (req.user.role !== 'SUPER_ADMIN') {
       return res.status(403).json({ message: 'Forbidden' });
     }
@@ -26,8 +27,8 @@ exports.createCompany = async (req, res) => {
 
 exports.updateCompany = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma;
     const { id } = req.params;
-    // Super admin only
     if (req.user.role !== 'SUPER_ADMIN') {
       return res.status(403).json({ message: 'Forbidden' });
     }
@@ -43,6 +44,7 @@ exports.updateCompany = async (req, res) => {
 
 exports.deleteCompany = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma;
     const { id } = req.params;
     if (req.user.role !== 'SUPER_ADMIN') {
       return res.status(403).json({ message: 'Forbidden' });

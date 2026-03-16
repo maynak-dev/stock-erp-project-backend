@@ -1,8 +1,8 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+// No local PrismaClient import/instantiation – use from app.locals
 
 exports.getStockReport = async (req, res) => {
   try {
+    const prisma = req.app.locals.prisma; // Get shared client
     const user = req.user;
     const { companyId, locationId, shopId } = req.query;
 
