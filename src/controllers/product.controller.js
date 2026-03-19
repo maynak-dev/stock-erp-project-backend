@@ -14,7 +14,7 @@ exports.getAllProducts = async (req, res) => {
 
 exports.createProduct = async (req, res) => {
   try {
-    const prisma = req.app.locals.prisma;
+    const prisma  = req.app.locals.prisma;
     const product = await prisma.product.create({
       data: req.body,
       include: { company: true, category: true },
@@ -27,11 +27,11 @@ exports.createProduct = async (req, res) => {
 
 exports.updateProduct = async (req, res) => {
   try {
-    const prisma = req.app.locals.prisma;
-    const { id } = req.params;
-    const product = await prisma.product.update({
+    const prisma   = req.app.locals.prisma;
+    const { id }   = req.params;
+    const product  = await prisma.product.update({
       where: { id },
-      data: req.body,
+      data:  req.body,
       include: { company: true, category: true },
     });
     res.json(product);
@@ -44,8 +44,10 @@ exports.deleteProduct = async (req, res) => {
   try {
     const prisma = req.app.locals.prisma;
     const { id } = req.params;
+
+    // Delete child rows in FK order before deleting the product
     const stockRows = await prisma.stock.findMany({ where: { productId: id }, select: { id: true } });
-    const stockIds = stockRows.map(s => s.id);
+    const stockIds  = stockRows.map(s => s.id);
     if (stockIds.length > 0) {
       await prisma.returnItem.deleteMany({ where: { stockId: { in: stockIds } } });
       await prisma.stockMovement.deleteMany({ where: { stockId: { in: stockIds } } });

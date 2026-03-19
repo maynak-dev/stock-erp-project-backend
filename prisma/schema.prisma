@@ -71,56 +71,43 @@ model Shop {
 }
 
 model User {
-  id          String      @id @default(cuid())
-  email       String      @unique
+  id          String          @id @default(cuid())
+  email       String          @unique
   password    String
   name        String
   role        Role
   companyId   String?
   locationId  String?
   shopId      String?
-  company     Company?    @relation(fields: [companyId], references: [id])
-  location    Location?   @relation(fields: [locationId], references: [id])
-  shop        Shop?       @relation(fields: [shopId], references: [id])
+  company     Company?        @relation(fields: [companyId], references: [id])
+  location    Location?       @relation(fields: [locationId], references: [id])
+  shop        Shop?           @relation(fields: [shopId], references: [id])
   permissions UserPermission?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 }
 
-// Fine-grained permissions — only SUPER_ADMIN can set these
 model UserPermission {
-  id     String @id @default(cuid())
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Products
+  id                String  @id @default(cuid())
+  userId            String  @unique
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   canViewProducts   Boolean @default(true)
   canCreateProducts Boolean @default(false)
   canEditProducts   Boolean @default(false)
   canDeleteProducts Boolean @default(false)
-
-  // Stock
-  canViewStock     Boolean @default(true)
-  canAddStock      Boolean @default(false)
-  canTransferStock Boolean @default(false)
-
-  // Returns
+  canViewStock      Boolean @default(true)
+  canAddStock       Boolean @default(false)
+  canTransferStock  Boolean @default(false)
   canViewReturns    Boolean @default(true)
   canCreateReturns  Boolean @default(false)
   canApproveReturns Boolean @default(false)
-
-  // Reports
-  canViewReports Boolean @default(true)
-
-  // Users
-  canViewUsers   Boolean @default(false)
-  canManageUsers Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  canViewReports    Boolean @default(true)
+  canViewUsers      Boolean @default(false)
+  canManageUsers    Boolean @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
-// Product categories — scoped to a company
 model Category {
   id          String    @id @default(cuid())
   name        String
