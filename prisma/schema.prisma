@@ -1,13 +1,9 @@
-// This is your Prisma schema file,
-// learn more in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
-  // The connection URL is now defined in prisma.config.ts
 }
 
 enum Role {
@@ -34,17 +30,18 @@ enum ReturnStatus {
 }
 
 model Company {
-  id        String     @id @default(cuid())
-  name      String
-  gst       String?
-  address   String?
-  contact   String?
-  locations Location[]
-  users     User[]
-  products  Product[]
-  stock     Stock[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id         String      @id @default(cuid())
+  name       String
+  gst        String?
+  address    String?
+  contact    String?
+  locations  Location[]
+  users      User[]
+  products   Product[]
+  stock      Stock[]
+  categories Category[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
 }
 
 model Location {
@@ -74,32 +71,80 @@ model Shop {
 }
 
 model User {
-  id         String    @id @default(cuid())
-  email      String    @unique
-  password   String
-  name       String
-  role       Role
-  companyId  String?
-  locationId String?
-  shopId     String?
-  company    Company?  @relation(fields: [companyId], references: [id])
-  location   Location? @relation(fields: [locationId], references: [id])
-  shop       Shop?     @relation(fields: [shopId], references: [id])
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id          String      @id @default(cuid())
+  email       String      @unique
+  password    String
+  name        String
+  role        Role
+  companyId   String?
+  locationId  String?
+  shopId      String?
+  company     Company?    @relation(fields: [companyId], references: [id])
+  location    Location?   @relation(fields: [locationId], references: [id])
+  shop        Shop?       @relation(fields: [shopId], references: [id])
+  permissions UserPermission?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+// Fine-grained permissions — only SUPER_ADMIN can set these
+model UserPermission {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Products
+  canViewProducts   Boolean @default(true)
+  canCreateProducts Boolean @default(false)
+  canEditProducts   Boolean @default(false)
+  canDeleteProducts Boolean @default(false)
+
+  // Stock
+  canViewStock     Boolean @default(true)
+  canAddStock      Boolean @default(false)
+  canTransferStock Boolean @default(false)
+
+  // Returns
+  canViewReturns    Boolean @default(true)
+  canCreateReturns  Boolean @default(false)
+  canApproveReturns Boolean @default(false)
+
+  // Reports
+  canViewReports Boolean @default(true)
+
+  // Users
+  canViewUsers   Boolean @default(false)
+  canManageUsers Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Product categories — scoped to a company
+model Category {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model Product {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String
-  sku           String   @unique
+  sku           String    @unique
   defaultPrice  Float
-  shelfLifeDays Int? // days until expiry from manufacture
+  shelfLifeDays Int?
+  categoryId    String?
+  category      Category? @relation(fields: [categoryId], references: [id])
   companyId     String
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   stockItems    Stock[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model Stock {
@@ -128,7 +173,7 @@ model StockMovement {
   id           String   @id @default(cuid())
   stockId      String
   stock        Stock    @relation(fields: [stockId], references: [id])
-  fromType     String // COMPANY, LOCATION, SHOP
+  fromType     String
   fromId       String?
   toType       String
   toId         String

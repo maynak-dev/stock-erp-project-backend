@@ -16,6 +16,7 @@ const stockRoutes = require('./routes/stock.routes');
 const expiryRoutes = require('./routes/expiry.routes');
 const returnRoutes = require('./routes/return.routes');
 const reportRoutes = require('./routes/report.routes');
+const categoryRoutes = require('./routes/category.routes');
 
 const app = express();
 
@@ -57,6 +58,7 @@ app.use('/api/stock', stockRoutes);
 app.use('/api/expiry', expiryRoutes);
 app.use('/api/returns', returnRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/categories', categoryRoutes);
 
 // Export for Vercel serverless
 module.exports = app;
