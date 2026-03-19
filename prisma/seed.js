@@ -4,6 +4,7 @@ const { PrismaClient } = require('@prisma/client');
 const { PrismaPg }     = require('@prisma/adapter-pg');
 const { Pool }         = require('pg');
 const bcrypt           = require('bcryptjs');
+const { execSync }     = require('child_process');  // 👈 added to run migrations
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
@@ -19,10 +20,10 @@ const prisma  = new PrismaClient({ adapter });
 const daysFromNow = (d) => new Date(Date.now() + d * 86400000);
 const daysAgo     = (d) => new Date(Date.now() - d * 86400000);
 const hash        = (p)  => bcrypt.hash(p, 10);
-const pad         = (n, z = 3) => String(n).padStart(z, '0');
+const pad         = (n)  => String(n).padStart(3, '0');
 const slug        = (s)  => s.toLowerCase().replace(/\s+/g, '');
 
-// ─── Default permissions by role ──────────────────────────────────────────
+// Default permissions by role
 const defaultPermissions = (role) => ({
   canViewProducts:   true,
   canCreateProducts: ['SUPER_ADMIN','COMPANY_ADMIN'].includes(role),
@@ -39,30 +40,43 @@ const defaultPermissions = (role) => ({
   canManageUsers:    ['SUPER_ADMIN','COMPANY_ADMIN'].includes(role),
 });
 
-// Create user with auto permissions
-// Detect if new models exist by checking prisma client keys
-const hasPermissions = typeof prisma.userPermission !== 'undefined';
-const hasCategories  = typeof prisma.category !== 'undefined';
-
+// Create user — always includes permissions
 const createUser = async (data) => {
   const existing = await prisma.user.findUnique({ where: { email: data.email } });
   if (existing) return existing;
-  const userData = {
-    ...data,
-    password: await hash(data.password),
-  };
-  // Only nest permissions if the model exists in the generated client
-  if (hasPermissions) {
-    userData.permissions = { create: defaultPermissions(data.role) };
-  }
-  return prisma.user.create({ data: userData });
+  return prisma.user.create({
+    data: {
+      ...data,
+      password: await hash(data.password),
+      permissions: { create: defaultPermissions(data.role) },
+    },
+  });
 };
 
+// 🔧 New function: ensure database tables exist before seeding
+async function ensureDatabaseSchema() {
+  try {
+    // Try a simple query on a core table
+    await prisma.user.count();
+  } catch (error) {
+    if (error.code === 'P2021') { // Table does not exist
+      console.log('📦 Database tables missing. Applying migrations...');
+      // Run `prisma migrate deploy` to create all tables
+      execSync('npx prisma migrate deploy', { stdio: 'inherit' });
+      console.log('✅ Migrations applied.');
+    } else {
+      // Re-throw any other error
+      throw error;
+    }
+  }
+}
+
 async function main() {
-  // ─── WIPE ────────────────────────────────────────────────────────────────
+  // 👇 Ensure the database schema is present before we do anything
+  await ensureDatabaseSchema();
+
+  // ─── WIPE ─────────────────────────────────────────────────────────────────
   console.log('🗑️  Clearing existing data...\n');
-  // Safe delete — wraps each in try/catch so new tables (category, userPermission)
-  // don't crash the wipe if the migration has not been run yet.
   const safe = async (fn) => { try { await fn(); } catch (_) {} };
 
   await safe(() => prisma.returnItem.deleteMany());
@@ -79,24 +93,21 @@ async function main() {
   console.log('✅ All previous data removed.\n');
   console.log('🌱 Seeding fresh data...\n');
 
-  // ─── SUPER ADMIN ─────────────────────────────────────────────────────────
-  const superAdmin = await createUser({
+  // ─── SUPER ADMIN ──────────────────────────────────────────────────────────
+  await createUser({
     email:    'admin@stockerp.com',
     password: 'Admin@1234',
     name:     'Super Admin',
     role:     'SUPER_ADMIN',
   });
-  console.log('👤 Super Admin created → admin@stockerp.com / Admin@1234');
+  console.log('👤 Super Admin → admin@stockerp.com / Admin@1234');
 
-  // ─── COMPANIES ───────────────────────────────────────────────────────────
+  // ─── COMPANIES ────────────────────────────────────────────────────────────
   const companiesData = [
     {
-      name:    'Mio Amore',
-      gst:     '19AABCU9603R1ZM',
+      name: 'Mio Amore', gst: '19AABCU9603R1ZM',
       address: '14 Park Street, Kolkata, West Bengal 700016',
-      contact: '+91 98765 43210',
-      prefix:  'MIO',
-      city:    'Kolkata',
+      contact: '+91 98765 43210', prefix: 'MIO', city: 'Kolkata',
       categoryDefs: [
         { name:'Cakes',    description:'Celebration and premium cakes' },
         { name:'Pastries', description:'Fresh cream and baked pastries' },
@@ -104,21 +115,18 @@ async function main() {
         { name:'Breads',   description:'Artisan and sandwich breads' },
       ],
       productDefs: [
-        { suffix:'Chocolate Truffle Cake', sku:'MIO-CAKE-001', price:650,  shelf:5,  cat:'Cakes'    },
-        { suffix:'Black Forest Cake',      sku:'MIO-CAKE-002', price:550,  shelf:4,  cat:'Cakes'    },
-        { suffix:'Cream Puff',             sku:'MIO-PAST-001', price:85,   shelf:2,  cat:'Pastries' },
-        { suffix:'Éclair',                 sku:'MIO-PAST-002', price:75,   shelf:2,  cat:'Pastries' },
-        { suffix:'Butter Cookies 200g',    sku:'MIO-COOK-001', price:120,  shelf:60, cat:'Cookies'  },
-        { suffix:'Sourdough Loaf',         sku:'MIO-BREA-001', price:180,  shelf:3,  cat:'Breads'   },
+        { suffix:'Chocolate Truffle Cake', sku:'MIO-CAKE-001', price:650, shelf:5,  cat:'Cakes'    },
+        { suffix:'Black Forest Cake',      sku:'MIO-CAKE-002', price:550, shelf:4,  cat:'Cakes'    },
+        { suffix:'Cream Puff',             sku:'MIO-PAST-001', price:85,  shelf:2,  cat:'Pastries' },
+        { suffix:'Eclair',                 sku:'MIO-PAST-002', price:75,  shelf:2,  cat:'Pastries' },
+        { suffix:'Butter Cookies 200g',    sku:'MIO-COOK-001', price:120, shelf:60, cat:'Cookies'  },
+        { suffix:'Sourdough Loaf',         sku:'MIO-BREA-001', price:180, shelf:3,  cat:'Breads'   },
       ],
     },
     {
-      name:    'Monginis',
-      gst:     '27AABBC1234E1ZP',
+      name: 'Monginis', gst: '27AABBC1234E1ZP',
       address: '42 Hill Road, Bandra West, Mumbai 400050',
-      contact: '+91 98765 43211',
-      prefix:  'MON',
-      city:    'Mumbai',
+      contact: '+91 98765 43211', prefix: 'MON', city: 'Mumbai',
       categoryDefs: [
         { name:'Cakes',     description:'Designer and custom cakes' },
         { name:'Muffins',   description:'American-style muffins' },
@@ -126,21 +134,18 @@ async function main() {
         { name:'Savouries', description:'Sandwiches, puffs and savory bites' },
       ],
       productDefs: [
-        { suffix:'Pineapple Cake',        sku:'MON-CAKE-001', price:480,  shelf:5,  cat:'Cakes'     },
-        { suffix:'Red Velvet Cake',       sku:'MON-CAKE-002', price:580,  shelf:4,  cat:'Cakes'     },
-        { suffix:'Blueberry Muffin',      sku:'MON-MUFF-001', price:65,   shelf:3,  cat:'Muffins'   },
-        { suffix:'Choco Chip Muffin',     sku:'MON-MUFF-002', price:60,   shelf:3,  cat:'Muffins'   },
-        { suffix:'Almond Crunch Cookies', sku:'MON-COOK-001', price:110,  shelf:45, cat:'Cookies'   },
-        { suffix:'Veg Puff',              sku:'MON-SAVR-001', price:35,   shelf:1,  cat:'Savouries' },
+        { suffix:'Pineapple Cake',        sku:'MON-CAKE-001', price:480, shelf:5,  cat:'Cakes'     },
+        { suffix:'Red Velvet Cake',       sku:'MON-CAKE-002', price:580, shelf:4,  cat:'Cakes'     },
+        { suffix:'Blueberry Muffin',      sku:'MON-MUFF-001', price:65,  shelf:3,  cat:'Muffins'   },
+        { suffix:'Choco Chip Muffin',     sku:'MON-MUFF-002', price:60,  shelf:3,  cat:'Muffins'   },
+        { suffix:'Almond Crunch Cookies', sku:'MON-COOK-001', price:110, shelf:45, cat:'Cookies'   },
+        { suffix:'Veg Puff',              sku:'MON-SAVR-001', price:35,  shelf:1,  cat:'Savouries' },
       ],
     },
     {
-      name:    'Kookie Jar',
-      gst:     '29AADCK5678F1ZQ',
+      name: 'Kookie Jar', gst: '29AADCK5678F1ZQ',
       address: '7 Church Street, Bengaluru, Karnataka 560001',
-      contact: '+91 98765 43212',
-      prefix:  'KKJ',
-      city:    'Bengaluru',
+      contact: '+91 98765 43212', prefix: 'KKJ', city: 'Bengaluru',
       categoryDefs: [
         { name:'Signature Cookies', description:'Premium hand-crafted cookies' },
         { name:'Gift Hampers',      description:'Curated gift boxes and hampers' },
@@ -161,57 +166,43 @@ async function main() {
   for (const [ci, compDef] of companiesData.entries()) {
     const { prefix, city, categoryDefs, productDefs, ...coreData } = compDef;
 
-    // ── Company ──────────────────────────────────────────────────────────
     const company = await prisma.company.create({ data: coreData });
     console.log(`\n🏢 ${company.name}`);
 
     // Company Admin
     await createUser({
-      email:     `admin@${slug(company.name)}.com`,
-      password:  'Company@1234',
-      name:      `${company.name} Admin`,
-      role:      'COMPANY_ADMIN',
-      companyId: company.id,
+      email: `admin@${slug(company.name)}.com`, password: 'Company@1234',
+      name: `${company.name} Admin`, role: 'COMPANY_ADMIN', companyId: company.id,
     });
-    console.log(`   👤 Company Admin  → admin@${slug(company.name)}.com / Company@1234`);
+    console.log(`   👤 Company Admin → admin@${slug(company.name)}.com / Company@1234`);
 
-    // ── Categories (only if model exists in generated client) ──────────────
+    // Categories
     const categoryMap = {};
-    if (hasCategories) {
-      for (const catDef of categoryDefs) {
-        const cat = await prisma.category.create({
-          data: { name: catDef.name, description: catDef.description, companyId: company.id },
-        });
-        categoryMap[cat.name] = cat.id;
-      }
-      console.log(`   🏷️  ${categoryDefs.length} categories created`);
-    } else {
-      console.log(`   ⚠️  Skipping categories — run migration first`);
+    for (const catDef of categoryDefs) {
+      const cat = await prisma.category.create({
+        data: { name: catDef.name, description: catDef.description, companyId: company.id },
+      });
+      categoryMap[cat.name] = cat.id;
     }
+    console.log(`   🏷️  ${categoryDefs.length} categories created`);
 
-    // ── Products ─────────────────────────────────────────────────────────
+    // Products
     const products = [];
     for (const pd of productDefs) {
       const product = await prisma.product.create({
         data: {
-          name:          `${company.name} ${pd.suffix}`,
-          sku:           pd.sku,
-          defaultPrice:  pd.price,
-          shelfLifeDays: pd.shelf,
-          companyId:     company.id,
-          ...(hasCategories && { categoryId: categoryMap[pd.cat] ?? null }),
+          name: `${company.name} ${pd.suffix}`, sku: pd.sku,
+          defaultPrice: pd.price, shelfLifeDays: pd.shelf,
+          companyId: company.id,
+          categoryId: categoryMap[pd.cat] ?? null,
         },
       });
       products.push({ ...product, shelfDays: pd.shelf });
     }
     console.log(`   📦 ${products.length} products created`);
 
-    // ── Locations (3 per company) ─────────────────────────────────────────
-    const locationNames = [
-      `${city} Central Hub`,
-      `${city} North Depot`,
-      `${city} East Warehouse`,
-    ];
+    // Locations
+    const locationNames = [`${city} Central Hub`, `${city} North Depot`, `${city} East Warehouse`];
     const locations = [];
 
     for (const [li, locName] of locationNames.entries()) {
@@ -220,211 +211,129 @@ async function main() {
       });
       locations.push(location);
 
-      // Location Manager
-      const mgr = await createUser({
-        email:      `mgr.loc${li+1}@${slug(company.name)}.com`,
-        password:   'Location@1234',
-        name:       `${locName} Manager`,
-        role:       'LOCATION_MANAGER',
-        companyId:  company.id,
-        locationId: location.id,
+      await createUser({
+        email: `mgr.loc${li+1}@${slug(company.name)}.com`, password: 'Location@1234',
+        name: `${locName} Manager`, role: 'LOCATION_MANAGER',
+        companyId: company.id, locationId: location.id,
       });
 
-      // ── Shops (2 per location) ──────────────────────────────────────────
-      const shopAreas = ['Main Market', 'Mall Outlet'];
-      for (const [si, area] of shopAreas.entries()) {
+      // Shops
+      for (const [si, area] of ['Main Market','Mall Outlet'].entries()) {
         const shop = await prisma.shop.create({
           data: {
-            name:       `${company.name} — ${locName.split(' ').slice(-1)[0]} ${area}`,
-            address:    `Shop ${si+1}, ${area}, ${city}`,
-            locationId: location.id,
+            name: `${company.name} — ${locName.split(' ').slice(-1)[0]} ${area}`,
+            address: `Shop ${si+1}, ${area}, ${city}`, locationId: location.id,
           },
         });
 
-        // Shop Owner
         await createUser({
-          email:      `owner.l${li+1}s${si+1}@${slug(company.name)}.com`,
-          password:   'Shop@1234',
-          name:       `${shop.name} Owner`,
-          role:       'SHOP_OWNER',
-          companyId:  company.id,
-          locationId: location.id,
-          shopId:     shop.id,
+          email: `owner.l${li+1}s${si+1}@${slug(company.name)}.com`, password: 'Shop@1234',
+          name: `${shop.name} Owner`, role: 'SHOP_OWNER',
+          companyId: company.id, locationId: location.id, shopId: shop.id,
+        });
+        await createUser({
+          email: `emp.l${li+1}s${si+1}@${slug(company.name)}.com`, password: 'Employee@1234',
+          name: `${shop.name} Staff`, role: 'SHOP_EMPLOYEE',
+          companyId: company.id, locationId: location.id, shopId: shop.id,
         });
 
-        // Shop Employee
-        await createUser({
-          email:      `emp.l${li+1}s${si+1}@${slug(company.name)}.com`,
-          password:   'Employee@1234',
-          name:       `${shop.name} Staff`,
-          role:       'SHOP_EMPLOYEE',
-          companyId:  company.id,
-          locationId: location.id,
-          shopId:     shop.id,
-        });
-
-        // ── Stock IN SHOP ─────────────────────────────────────────────────
+        // Stock in shop
         for (const [pi, product] of products.entries()) {
-          // Near-expiry batch (shows in dashboard alerts)
-          await prisma.stock.create({
-            data: {
-              batchNumber:       `${prefix}-SHOP-L${li+1}S${si+1}-P${pad(pi+1)}-WARN`,
-              manufacturingDate: daysAgo(product.shelfDays - 3),
-              expiryDate:        daysFromNow(3),
-              quantity:          12,
-              price:             product.defaultPrice,
-              productId:         product.id,
-              companyId:         company.id,
-              locationId:        location.id,
-              shopId:            shop.id,
-              status:            'IN_SHOP',
-            },
-          });
-          // Healthy batch
-          await prisma.stock.create({
-            data: {
-              batchNumber:       `${prefix}-SHOP-L${li+1}S${si+1}-P${pad(pi+1)}-GOOD`,
-              manufacturingDate: daysAgo(5),
-              expiryDate:        daysFromNow(product.shelfDays - 5),
-              quantity:          30,
-              price:             product.defaultPrice,
-              productId:         product.id,
-              companyId:         company.id,
-              locationId:        location.id,
-              shopId:            shop.id,
-              status:            'IN_SHOP',
-            },
-          });
+          await prisma.stock.create({ data: {
+            batchNumber: `${prefix}-SHOP-L${li+1}S${si+1}-P${pad(pi+1)}-WARN`,
+            manufacturingDate: daysAgo(product.shelfDays - 3), expiryDate: daysFromNow(3),
+            quantity: 12, price: product.defaultPrice,
+            productId: product.id, companyId: company.id,
+            locationId: location.id, shopId: shop.id, status: 'IN_SHOP',
+          }});
+          await prisma.stock.create({ data: {
+            batchNumber: `${prefix}-SHOP-L${li+1}S${si+1}-P${pad(pi+1)}-GOOD`,
+            manufacturingDate: daysAgo(5), expiryDate: daysFromNow(product.shelfDays - 5),
+            quantity: 30, price: product.defaultPrice,
+            productId: product.id, companyId: company.id,
+            locationId: location.id, shopId: shop.id, status: 'IN_SHOP',
+          }});
         }
       }
 
-      // ── Stock IN LOCATION ───────────────────────────────────────────────
+      // Stock in location
       for (const [pi, product] of products.entries()) {
-        // Main batch
-        await prisma.stock.create({
-          data: {
-            batchNumber:       `${prefix}-LOC-L${li+1}-P${pad(pi+1)}-MAIN`,
-            manufacturingDate: daysAgo(15),
-            expiryDate:        daysFromNow(product.shelfDays),
-            quantity:          150,
-            price:             product.defaultPrice,
-            productId:         product.id,
-            companyId:         company.id,
-            locationId:        location.id,
-            status:            'IN_LOCATION',
-          },
-        });
-        // Warning batch — 6 days left
-        await prisma.stock.create({
-          data: {
-            batchNumber:       `${prefix}-LOC-L${li+1}-P${pad(pi+1)}-WARN`,
-            manufacturingDate: daysAgo(product.shelfDays - 6),
-            expiryDate:        daysFromNow(6),
-            quantity:          40,
-            price:             product.defaultPrice,
-            productId:         product.id,
-            companyId:         company.id,
-            locationId:        location.id,
-            status:            'IN_LOCATION',
-          },
-        });
+        await prisma.stock.create({ data: {
+          batchNumber: `${prefix}-LOC-L${li+1}-P${pad(pi+1)}-MAIN`,
+          manufacturingDate: daysAgo(15), expiryDate: daysFromNow(product.shelfDays),
+          quantity: 150, price: product.defaultPrice,
+          productId: product.id, companyId: company.id, locationId: location.id, status: 'IN_LOCATION',
+        }});
+        await prisma.stock.create({ data: {
+          batchNumber: `${prefix}-LOC-L${li+1}-P${pad(pi+1)}-WARN`,
+          manufacturingDate: daysAgo(product.shelfDays - 6), expiryDate: daysFromNow(6),
+          quantity: 40, price: product.defaultPrice,
+          productId: product.id, companyId: company.id, locationId: location.id, status: 'IN_LOCATION',
+        }});
       }
     }
 
-    // ── Stock IN COMPANY warehouse ──────────────────────────────────────────
+    // Stock in company warehouse
     for (const [pi, product] of products.entries()) {
-      // Fresh master batch
-      await prisma.stock.create({
-        data: {
-          batchNumber:       `${prefix}-WH-P${pad(pi+1)}-A`,
-          manufacturingDate: daysAgo(3),
-          expiryDate:        daysFromNow(product.shelfDays),
-          quantity:          500,
-          price:             product.defaultPrice,
-          productId:         product.id,
-          companyId:         company.id,
-          status:            'IN_COMPANY',
-        },
-      });
-      // Older batch — 5 days left
-      await prisma.stock.create({
-        data: {
-          batchNumber:       `${prefix}-WH-P${pad(pi+1)}-B`,
-          manufacturingDate: daysAgo(product.shelfDays - 5),
-          expiryDate:        daysFromNow(5),
-          quantity:          80,
-          price:             product.defaultPrice,
-          productId:         product.id,
-          companyId:         company.id,
-          status:            'IN_COMPANY',
-        },
-      });
+      await prisma.stock.create({ data: {
+        batchNumber: `${prefix}-WH-P${pad(pi+1)}-A`,
+        manufacturingDate: daysAgo(3), expiryDate: daysFromNow(product.shelfDays),
+        quantity: 500, price: product.defaultPrice,
+        productId: product.id, companyId: company.id, status: 'IN_COMPANY',
+      }});
+      await prisma.stock.create({ data: {
+        batchNumber: `${prefix}-WH-P${pad(pi+1)}-B`,
+        manufacturingDate: daysAgo(product.shelfDays - 5), expiryDate: daysFromNow(5),
+        quantity: 80, price: product.defaultPrice,
+        productId: product.id, companyId: company.id, status: 'IN_COMPANY',
+      }});
     }
 
-    // ── Return Requests ─────────────────────────────────────────────────────
-    const allShops = await prisma.shop.findMany({
-      where: { location: { companyId: company.id } },
-    });
-
+    // Return requests
+    const allShops = await prisma.shop.findMany({ where: { location: { companyId: company.id } } });
     for (const [ri, shop] of allShops.slice(0, 2).entries()) {
       const shopStock = await prisma.stock.findMany({ where: { shopId: shop.id }, take: 2 });
-      if (shopStock.length < 1) continue;
-
-      const statuses = ['PENDING', 'APPROVED', 'COMPLETED'];
+      if (!shopStock.length) continue;
       await prisma.returnRequest.create({
         data: {
           requestNumber: `RET-${prefix}-${pad(ci+1)}-${pad(ri+1)}`,
-          shopId:        shop.id,
-          status:        statuses[ri % statuses.length],
+          shopId: shop.id,
+          status: ['PENDING','APPROVED','COMPLETED'][ri % 3],
           items: {
             create: shopStock.slice(0, 2).map((s, idx) => ({
-              stockId:  s.id,
-              quantity: idx === 0 ? 5 : 3,
-              reason:   idx === 0 ? 'Near expiry' : 'Damaged packaging',
+              stockId: s.id, quantity: idx === 0 ? 5 : 3,
+              reason: idx === 0 ? 'Near expiry' : 'Damaged packaging',
             })),
           },
         },
       });
     }
 
-    console.log(`   ✅ ${locations.length} locations, ${locations.length * 2} shops, stock & returns seeded`);
+    console.log(`   ✅ ${locations.length} locations, ${locations.length * 2} shops seeded`);
   }
 
-  // ─── FINAL SUMMARY ───────────────────────────────────────────────────────
-  const counts = await Promise.all([
-    prisma.company.count(),
-    prisma.location.count(),
-    prisma.shop.count(),
-    prisma.user.count(),
-    hasCategories  ? prisma.category.count()       : Promise.resolve('(migration pending)'),
-    prisma.product.count(),
-    prisma.stock.count(),
-    prisma.returnRequest.count(),
-    hasPermissions ? prisma.userPermission.count() : Promise.resolve('(migration pending)'),
+  // ─── SUMMARY ──────────────────────────────────────────────────────────────
+  const [cos, locs, shops, users, cats, prods, stocks, rets, perms] = await Promise.all([
+    prisma.company.count(), prisma.location.count(), prisma.shop.count(),
+    prisma.user.count(), prisma.category.count(), prisma.product.count(),
+    prisma.stock.count(), prisma.returnRequest.count(), prisma.userPermission.count(),
   ]);
 
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('🌱 Seeding complete!\n');
-  console.log(`   Companies        : ${counts[0]}`);
-  console.log(`   Locations        : ${counts[1]}`);
-  console.log(`   Shops            : ${counts[2]}`);
-  console.log(`   Users            : ${counts[3]}`);
-  console.log(`   Categories       : ${counts[4]}`);
-  console.log(`   Products         : ${counts[5]}`);
-  console.log(`   Stock rows       : ${counts[6]}`);
-  console.log(`   Return requests  : ${counts[7]}`);
-  console.log(`   Permissions rows : ${counts[8]}`);
+  console.log(`   Companies   : ${cos}  |  Locations : ${locs}  |  Shops    : ${shops}`);
+  console.log(`   Users       : ${users}  |  Permissions: ${perms}`);
+  console.log(`   Categories  : ${cats}  |  Products  : ${prods}`);
+  console.log(`   Stock rows  : ${stocks}  |  Returns  : ${rets}`);
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔑 Login Credentials\n');
-  console.log('   ROLE               EMAIL                          PASSWORD');
-  console.log('   ─────────────────  ─────────────────────────────  ─────────────');
-  console.log('   Super Admin        admin@stockerp.com             Admin@1234');
-  console.log('   Company Admin      admin@mioamore.com             Company@1234');
-  console.log('   Company Admin      admin@monginis.com             Company@1234');
-  console.log('   Company Admin      admin@kookiejar.com            Company@1234');
-  console.log('   Location Manager   mgr.loc1@mioamore.com          Location@1234');
-  console.log('   Shop Owner         owner.l1s1@mioamore.com        Shop@1234');
-  console.log('   Shop Employee      emp.l1s1@mioamore.com          Employee@1234');
+  console.log('🔑 Credentials\n');
+  console.log('   Super Admin     admin@stockerp.com          Admin@1234');
+  console.log('   Company Admin   admin@mioamore.com          Company@1234');
+  console.log('   Company Admin   admin@monginis.com          Company@1234');
+  console.log('   Company Admin   admin@kookiejar.com         Company@1234');
+  console.log('   Loc Manager     mgr.loc1@mioamore.com       Location@1234');
+  console.log('   Shop Owner      owner.l1s1@mioamore.com     Shop@1234');
+  console.log('   Shop Employee   emp.l1s1@mioamore.com       Employee@1234');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 }
 

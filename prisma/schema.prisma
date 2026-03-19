@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // The connection URL is now defined in prisma.config.ts
 }
 
 enum Role {
@@ -88,22 +89,22 @@ model User {
 }
 
 model UserPermission {
-  id                String  @id @default(cuid())
-  userId            String  @unique
-  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  canViewProducts   Boolean @default(true)
-  canCreateProducts Boolean @default(false)
-  canEditProducts   Boolean @default(false)
-  canDeleteProducts Boolean @default(false)
-  canViewStock      Boolean @default(true)
-  canAddStock       Boolean @default(false)
-  canTransferStock  Boolean @default(false)
-  canViewReturns    Boolean @default(true)
-  canCreateReturns  Boolean @default(false)
-  canApproveReturns Boolean @default(false)
-  canViewReports    Boolean @default(true)
-  canViewUsers      Boolean @default(false)
-  canManageUsers    Boolean @default(false)
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  canViewProducts   Boolean  @default(true)
+  canCreateProducts Boolean  @default(false)
+  canEditProducts   Boolean  @default(false)
+  canDeleteProducts Boolean  @default(false)
+  canViewStock      Boolean  @default(true)
+  canAddStock       Boolean  @default(false)
+  canTransferStock  Boolean  @default(false)
+  canViewReturns    Boolean  @default(true)
+  canCreateReturns  Boolean  @default(false)
+  canApproveReturns Boolean  @default(false)
+  canViewReports    Boolean  @default(true)
+  canViewUsers      Boolean  @default(false)
+  canManageUsers    Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
